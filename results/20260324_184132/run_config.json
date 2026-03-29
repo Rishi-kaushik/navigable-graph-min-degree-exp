@@ -1,0 +1,20 @@
+{
+  "annotate_cells": true,
+  "avg_heatmap_name": "avg_min_degree_heatmap.png",
+  "csv_name": "min_degree_heatmap.csv",
+  "dims_end": 15,
+  "dims_start": 2,
+  "dims_step": 6,
+  "distribution": "gaussian",
+  "experiments_per_cell": 1,
+  "max_heatmap_name": "max_min_degree_heatmap.png",
+  "normalize_points": true,
+  "points_end": 2560,
+  "points_multiplier": 2.0,
+  "points_start": 10,
+  "points_step": 5,
+  "results_root": "results",
+  "run_dir": "results/20260324_184132",
+  "seed": 0,
+  "workers": 8
+}
