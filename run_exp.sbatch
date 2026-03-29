@@ -1,98 +1,61 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=min_degree
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --time=20:00:00
 #SBATCH --mem=32GB
-#SBATCH --output=min_degree_%j.out
-#SBATCH --mail-type=ALL
+#SBATCH --output=/scratch/%u/min_degree_%j.out
+#SBATCH --error=/scratch/%u/min_degree_%j.err
+#SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=rk4870@nyu.edu
 
 set -euo pipefail
 
-# Load a Python module if available (cluster-dependent)
+REPO_DIR=${REPO_DIR:-/home/rk4870/navigable-graph-min-degree-exp}
+RESULTS_ROOT=${RESULTS_ROOT:-/scratch/$USER/min_degree_results}
+WORKERS=${SLURM_CPUS_PER_TASK:-1}
+
+# Use Anaconda module on Torch (includes pip + common scientific stack)
 if command -v module >/dev/null 2>&1; then
   module purge || true
-  # Try common module names first; keep this list short and generic.
-  for m in \
-    python \
-    python3 \
-    python/3.11 \
-    python/3.10 \
-    python/3.9 \
-    python/3.8 \
-    anaconda3 \
-    miniconda3
-  do
-    module load "$m" >/dev/null 2>&1 && break
-  done
+  module load anaconda3/2025.06
 fi
 
-PYTHON_BIN=""
-if command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN=python3
-elif command -v python >/dev/null 2>&1; then
-  PYTHON_BIN=python
-fi
-if [ -z "$PYTHON_BIN" ]; then
-  echo "error: python not found (check 'module avail python')" >&2
-  exit 1
-fi
+# Keep installs out of $HOME
+export PYTHONUSERBASE=${PYTHONUSERBASE:-/scratch/$USER/python-user-base}
+export PATH="$PYTHONUSERBASE/bin:$PATH"
 
-# Ensure we have a working pip. Some clusters ship python without pip.
-if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
-  # Try bootstrapping pip into user site-packages.
-  "$PYTHON_BIN" -m ensurepip --user >/dev/null 2>&1 || true
-fi
-
-if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
-  # Fall back to a user venv.
-  VENV_DIR=${VENV_DIR:-$HOME/.venvs/navigable-graph-min-degree-exp}
-  mkdir -p "$(dirname "$VENV_DIR")"
-  if [ ! -d "$VENV_DIR" ]; then
-    "$PYTHON_BIN" -m venv "$VENV_DIR" || {
-      echo "error: couldn't create venv and pip is unavailable." >&2
-      echo "Try loading a python module that includes pip (module spider python/anaconda)." >&2
-      exit 1
-    }
-  fi
-  PYTHON_BIN="$VENV_DIR/bin/python"
-fi
-
-"$PYTHON_BIN" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
-
-# Repo location on the remote cluster
-REPO_DIR=/home/rk4870/navigable-graph-min-degree-exp
-cd "$REPO_DIR"
-
-# Avoid oversubscription: each worker process uses 1 BLAS thread.
+# Prevent BLAS oversubscription when using process pool workers
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
-# Install required packages to user directory (only if missing)
+mkdir -p "$RESULTS_ROOT" "$PYTHONUSERBASE"
+cd "$REPO_DIR"
+
+PYTHON_BIN=${PYTHON_BIN:-python}
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN=python3
+fi
+
+echo "python: $(command -v $PYTHON_BIN || true)"
+"$PYTHON_BIN" -V
+
+# Install deps only if missing (Anaconda often already includes them)
 if ! "$PYTHON_BIN" - <<'PY'
-import importlib
-for name in ("numpy", "matplotlib"):
-    importlib.import_module(name)
+import numpy
+import matplotlib
 print("deps ok")
 PY
 then
   "$PYTHON_BIN" -m pip install --user --upgrade pip
-  "$PYTHON_BIN" -m pip install --user --no-cache-dir numpy matplotlib
+  "$PYTHON_BIN" -m pip install --user numpy matplotlib
 fi
 
-# Default to all allocated CPUs for process pool.
-WORKERS=${SLURM_CPUS_PER_TASK:-1}
-
-# Output root (override by exporting RESULTS_ROOT in your sbatch submission)
-RESULTS_ROOT=${RESULTS_ROOT:-results_slurm}
-
-# Run the experiment
-srun "$PYTHON_BIN" navigable_min_degree_experiment.py \
+"$PYTHON_BIN" navigable_min_degree_experiment.py \
   --distribution gaussian \
   --normalize-points \
   --seed 0 \
