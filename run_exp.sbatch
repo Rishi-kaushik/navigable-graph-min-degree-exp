@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #SBATCH --job-name=min_degree
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -11,9 +11,34 @@
 
 set -euo pipefail
 
-# Load necessary modules
-module purge
-module load python/intel/3.8.6
+# Load a Python module if available (cluster-dependent)
+if command -v module >/dev/null 2>&1; then
+  module purge || true
+  # Try common module names first; keep this list short and generic.
+  for m in \
+    python \
+    python3 \
+    python/3.11 \
+    python/3.10 \
+    python/3.9 \
+    python/3.8 \
+    anaconda3 \
+    miniconda3
+  do
+    module load "$m" >/dev/null 2>&1 && break
+  done
+fi
+
+PYTHON_BIN=""
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN=python
+fi
+if [ -z "$PYTHON_BIN" ]; then
+  echo "error: python not found (check 'module avail python')" >&2
+  exit 1
+fi
 
 # Repo location on the remote cluster
 REPO_DIR=/home/rk4870/navigable-graph-min-degree-exp
@@ -27,15 +52,15 @@ export VECLIB_MAXIMUM_THREADS=1
 export NUMEXPR_NUM_THREADS=1
 
 # Install required packages to user directory (only if missing)
-if ! python3 - <<'PY'
+if ! "$PYTHON_BIN" - <<'PY'
 import importlib
 for name in ("numpy", "matplotlib"):
     importlib.import_module(name)
 print("deps ok")
 PY
 then
-  python3 -m pip install --user --upgrade pip
-  python3 -m pip install --user numpy matplotlib
+  "$PYTHON_BIN" -m pip install --user --upgrade pip
+  "$PYTHON_BIN" -m pip install --user --no-cache-dir numpy matplotlib
 fi
 
 # Default to all allocated CPUs for process pool.
@@ -45,7 +70,7 @@ WORKERS=${SLURM_CPUS_PER_TASK:-1}
 RESULTS_ROOT=${RESULTS_ROOT:-results_slurm}
 
 # Run the experiment
-srun python3 navigable_min_degree_experiment.py \
+srun "$PYTHON_BIN" navigable_min_degree_experiment.py \
   --distribution gaussian \
   --normalize-points \
   --seed 0 \
