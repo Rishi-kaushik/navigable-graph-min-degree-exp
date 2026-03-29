@@ -40,6 +40,28 @@ if [ -z "$PYTHON_BIN" ]; then
   exit 1
 fi
 
+# Ensure we have a working pip. Some clusters ship python without pip.
+if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+  # Try bootstrapping pip into user site-packages.
+  "$PYTHON_BIN" -m ensurepip --user >/dev/null 2>&1 || true
+fi
+
+if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+  # Fall back to a user venv.
+  VENV_DIR=${VENV_DIR:-$HOME/.venvs/navigable-graph-min-degree-exp}
+  mkdir -p "$(dirname "$VENV_DIR")"
+  if [ ! -d "$VENV_DIR" ]; then
+    "$PYTHON_BIN" -m venv "$VENV_DIR" || {
+      echo "error: couldn't create venv and pip is unavailable." >&2
+      echo "Try loading a python module that includes pip (module spider python/anaconda)." >&2
+      exit 1
+    }
+  fi
+  PYTHON_BIN="$VENV_DIR/bin/python"
+fi
+
+"$PYTHON_BIN" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+
 # Repo location on the remote cluster
 REPO_DIR=/home/rk4870/navigable-graph-min-degree-exp
 cd "$REPO_DIR"
